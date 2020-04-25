@@ -1,6 +1,7 @@
 from __future__ import division
 import colorsys
-import xml.etree.cElementTree as ET
+from xml.etree.ElementTree import ElementTree, tostring
+import xml.etree.ElementTree as ET
 import plistlib
 import os.path
 import sys
@@ -144,7 +145,7 @@ class Attribute:
         self.id = id
         self.parent = parent
         self.scope = scope
-        if default_attributes.has_key(id):
+        if id in default_attributes:
             self.value = default_attributes[id]
             if background == IGNORE_COLOR:
                 self.value.default_back = IGNORE_COLOR_VALUE
@@ -775,7 +776,7 @@ def load_textmate_scheme(tmtheme):
     used_scopes = set()
     default_settings = find_by_scope(all_settings, None)
     if not default_settings:
-        print "Cannot find default settings"
+        print('Cannot find default settings')
         return
     default_settings = default_settings['settings']
 
@@ -829,11 +830,12 @@ def load_textmate_scheme(tmtheme):
             if settings:
                 the_scope = settings['scope']
                 if the_scope:
-                    print "converting attribute " + attr.id + " from TextMate scope " + the_scope
+                    print("converting attribute " + attr.id + " from TextMate scope " + the_scope)
                     used_scopes.add(the_scope)
-                attr.value = attr_from_textmate(settings['settings'], attr.value, background)
+                if attr.value:
+                    attr.value = attr_from_textmate(settings['settings'], attr.value, background)
             else:
-               print "[!] scope not found: " + attr.scope
+               print("[!] scope not found: " + attr.scope)
     return all_settings, used_scopes
 
 def blend_spy_js_attributes(background):
@@ -849,13 +851,19 @@ def blend_with_as_rgb256(base_hex_color, blend_with_hex_color, blend_hex_alpha):
     result = hex_to_rgb(color_from_textmate(base_hex_color + blend_hex_alpha, blend_with_hex_color))
     return int(result[0] * 256), int(result[1] * 256), int(result[2] * 256)
 
-def underscore_to_camelcase(value):
+def handle_case(value):
     def camelcase():
+        yield str.lower
         while True:
             yield str.capitalize
 
-    c = camelcase()
-    return "".join(c.next()(x) if x else '_' for x in value.split("_"))
+    if "_" in value:
+        value = camelcase()
+        return "".join(c.next()(x) if x else '_' for x in value.split("_"))
+    elif " " in value:
+        return "".join(x for x in value.title() if not x.isspace())
+    else:
+        return value
 
 def isDark():
     back = hex_to_rgb(text.value.background)
@@ -865,9 +873,9 @@ def isDark():
 def write_idea_scheme(filename):
     name, ext = os.path.splitext(os.path.basename(filename))
     baseName = "Darcula" if isDark() else "Default"
-    scheme = ET.Element("scheme", name=underscore_to_camelcase(name), version="1", parent_scheme=baseName)
+    scheme = ET.Element("scheme", name=handle_case(name), version="1", parent_scheme=baseName)
     colors = ET.SubElement(scheme, 'colors')
-    for name, value in all_colors.iteritems():
+    for name, value in all_colors.items():
         ET.SubElement(colors, 'option', name=name, value=value)
     attributes = ET.SubElement(scheme, 'attributes')
 
@@ -876,9 +884,9 @@ def write_idea_scheme(filename):
 
     for attr in all_attributes:
         if attr.value.inherited:
-            print 'inheriting ' + attr.id + ' from ' + attr.parent.id
+            print('inheriting ' + attr.id + ' from ' + attr.parent.id)
         elif isinstance(attr.value, DerivedAttributeValue):
-            print 'transforming IDEA default color for ' + attr.id
+            print('transforming IDEA default color for ' + attr.id)
         fore = attr.value.foreground
         back = attr.value.background
         saveFg = fore and (fore != IGNORE_COLOR_VALUE)
@@ -904,10 +912,14 @@ def write_idea_scheme(filename):
             ET.SubElement(attributes, 'option', name=attr.id, baseAttributes=attr.parent.id)
     indent(scheme)
     capitalize_colors(scheme)
-    ET.ElementTree(scheme).write(open(filename, "w+"))
+    scheme = ET.ElementTree(scheme).getroot()
+    scheme = tostring(scheme, encoding="unicode")
+    with open(filename, "w+") as text_file:
+        text_file.write(scheme)
+
 
 if len(sys.argv) != 3:
-    print 'Usage: colorSchemeTool <TextMate scheme> <IDEA/PyCharm/RubyMine scheme>'
+    print('Usage: colorSchemeTool <TextMate scheme> <IDEA/PyCharm/RubyMine scheme>')
     exit(1)
 
 all_settings, used_scopes = load_textmate_scheme(sys.argv[1])
@@ -918,4 +930,4 @@ write_idea_scheme(sys.argv[2])
 for setting in all_settings:
     scope = setting.get('scope', None)
     if scope and not scope in used_scopes:
-        print "Unused scope: " + scope
+        print("Unused scope: " + scope)
